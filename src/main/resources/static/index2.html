@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html ng-app="dhtSimApp">
+<head>
+    <title>DHT Simulator</title>
+    <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap-theme.min.css">
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="//ajax.googleapis.com/ajax/libs/angularjs/1.2.15/angular.min.js"></script>
+    <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+    <script src="sockjs-0.3.4.js"></script>
+    <script src="stomp.js"></script>
+    <script type="application/javascript">
+        var dhtSimApp = angular.module('dhtSimApp', []);
+
+        dhtSimApp.directive('ngCx', function() {
+           return function(scope, element, attrs) {
+               scope.$watch(attrs.ngCx, function(value) {
+                  element.attr('cx', value);
+               });
+           };
+        });
+
+        dhtSimApp.directive('ngCy', function() {
+            return function(scope, element, attrs) {
+                scope.$watch(attrs.ngCy, function(value) {
+                    element.attr('cy', value);
+                });
+            };
+        });
+
+        dhtSimApp.controller('MainController', function($scope, $http) {
+            $scope.connected = false;
+            $scope.nodes = [];
+            $scope.circles = [
+                {x: 0, y: 0, r: 5},
+                {x: 0, y: 0, r: 5},
+                {x: 0, y: 0, r: 5},
+                {x: 0, y: 0, r: 5},
+                {x: 0, y: 0, r: 5},
+                {x: 0, y: 0, r: 5},
+                {x: 0, y: 0, r: 5}
+            ];
+
+            function layoutCircles() {
+                var width = 600;
+                var height = 600;
+                var cx = width / 2;
+                var cy = height / 2;
+                var radius = (width / 2) - 40;
+                var per = (2.0 * Math.PI) / $scope.circles.length;
+                var angle = 0.0;
+                // soh cah toa
+                // cos(0) = a/h
+                // a = h * cos(0)
+                $scope.circles.forEach(function(data, index) {
+                    var x = cx + (radius * Math.cos(angle));
+                    var y = cy + (radius * Math.sin(angle));
+                    console.log(data);
+                    data.x = x;
+                    data.y = y;
+                    angle += per;
+                    console.log("Laying out");
+                });
+            }
+
+            layoutCircles();
+
+            var stompClient;
+
+            function connect() {
+                var socket = new SockJS("/hello");
+                stompClient = Stomp.over(socket);
+                stompClient.connect({}, function(frame) {
+                    $scope.connected = true;
+                    stompClient.subscribe("/topic/greetings", function(greeting) {
+                        console.log("Message: " + greeting.body);
+                    });
+                    stompClient.subscribe("/topic/simulation/**", function(data) {
+                        console.log("Simulation Event: " + data);
+                    });
+                });
+            }
+
+            function disconnect() {
+
+            }
+
+            $scope.startSimulation = function() {
+                //stompClient.send("/app/hello", {}, JSON.stringify({ 'name': "Foo" }));
+                $http.post("/api/simulation/start", {}).success(function(data) {
+                    console.log("Simulation Started");
+                    $http.get("/api/pastry/nodes").success(function (data) {
+                        $scope.nodes = data;
+                    });
+                });
+            };
+
+
+
+            connect();
+        });
+    </script>
+</head>
+<body ng-controller="MainController">
+    <div class="container">
+        <div>Connected? <span ng-bind="connected"></span></div>
+        <button type="button" class="btn btn-default" ng-click="startSimulation()">Start</button>
+        <div>
+            <ul>
+                <li ng-repeat="node in nodes">{{node.id}}</li>
+            </ul>
+        </div>
+        <div>
+            <svg width="600" height="600">
+                <circle ng-repeat="circle in circles" ng-cx="{{circle.x}}" cy="{{circle.y}}" r="5" fill="red" stroke="black" stroke-width="1"/>
+            </svg>
+        </div>
+    </div>
+</body>
+</html>
