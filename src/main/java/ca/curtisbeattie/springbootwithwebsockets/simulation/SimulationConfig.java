@@ -2,6 +2,10 @@ package ca.curtisbeattie.springbootwithwebsockets.simulation;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
 import rice.pastry.socket.SocketPastryNodeFactory;
 
 /**
@@ -10,7 +14,14 @@ import rice.pastry.socket.SocketPastryNodeFactory;
 @Configuration
 public class SimulationConfig {
     @Bean
-    public Simulation simulation(SocketPastryNodeFactory pastryNodeFactory) {
-        return new PastrySimulation(pastryNodeFactory);
+    public TaskExecutor taskExecutor() {
+        return new ThreadPoolTaskExecutor();
+    }
+
+    @Bean
+    public Simulation simulation(TaskExecutor taskExecutor,
+                                 SocketPastryNodeFactory pastryNodeFactory,
+                                 SimpMessagingTemplate messagingTemplate) {
+        return new PastrySimulation(taskExecutor, pastryNodeFactory, messagingTemplate);
     }
 }

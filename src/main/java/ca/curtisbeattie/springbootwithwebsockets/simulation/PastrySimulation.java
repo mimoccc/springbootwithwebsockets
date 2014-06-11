@@ -1,52 +1,91 @@
 package ca.curtisbeattie.springbootwithwebsockets.simulation;
 
 import com.google.common.collect.ImmutableList;
-import rice.pastry.NodeHandle;
-import rice.pastry.PastryNodeFactory;
-import rice.pastry.leafset.LeafSet;
-import rice.pastry.socket.SocketPastryNodeFactory;
+
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import rice.pastry.socket.SocketPastryNodeFactory;
+
 /**
  * Created by cbeattie on 08/06/14.
  */
 public class PastrySimulation implements Simulation {
-    private static final int NODE_COUNT = 5;
+    private static final int NODE_COUNT = 60;
     private final List<PastrySimulationNode> nodeList = new ArrayList<>();
+    private final TaskExecutor taskExecutor;
     private final SocketPastryNodeFactory pastryNodeFactory;
+    private final SimpMessagingTemplate messagingTemplate;
+    private boolean started;
 
-    public PastrySimulation(SocketPastryNodeFactory pastryNodeFactory) {
+    public PastrySimulation(TaskExecutor taskExecutor,
+                            SocketPastryNodeFactory pastryNodeFactory,
+                            SimpMessagingTemplate messagingTemplate) {
+        this.taskExecutor = taskExecutor;
         this.pastryNodeFactory = pastryNodeFactory;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Override
-    public void start() throws IOException, InterruptedException {
-        for(int i = 0; i < NODE_COUNT; ++i) {
-            PastrySimulationNode node = new PastrySimulationNode(pastryNodeFactory);
-            node.start(i, nodeList);
-            nodeList.add(node);
-        }
-
-        LeafSet leafSet = nodeList.get(0).getPastryNode().getLeafSet();
-        for(int i = 0; i < leafSet.size(); ++i) {
-            NodeHandle nodeHandle = leafSet.get(i);
-            System.out.println("Leaf: " + nodeHandle);
-        }
+    public boolean isStarted() {
+        return started;
     }
 
     @Override
-    public void stop() {
-        for(PastrySimulationNode node : nodeList) {
-            node.stop();
+    public synchronized void start() throws IOException, InterruptedException {
+        if(started) {
+            return;
         }
-        nodeList.clear();
+
+        started = true;
+        taskExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                for(int i = 0; i < NODE_COUNT; ++i) {
+                    PastrySimulationNode node = new PastrySimulationNode(pastryNodeFactory, messagingTemplate);
+                    try {
+                        node.start(i, nodeList);
+                    }
+                    catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    synchronized (nodeList) {
+                        nodeList.add(node);
+                    }
+                }
+            }
+        });
+    }
+
+    @Override
+    public synchronized void stop() {
+        if(!started) {
+            return;
+        }
+
+        taskExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (nodeList) {
+                    for(PastrySimulationNode node : nodeList) {
+                        node.stop();
+                    }
+                    nodeList.clear();
+                }
+            }
+        });
+
+        started = false;
     }
 
     @Override
     public List<SimulationNode> getNodes() {
-        return ImmutableList.<SimulationNode>copyOf(nodeList);
+        synchronized (nodeList) {
+            return ImmutableList.<SimulationNode>copyOf(nodeList);
+        }
     }
 }

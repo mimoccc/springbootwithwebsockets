@@ -12,17 +12,30 @@
     <script type="application/javascript">
         var dhtSimApp = angular.module('dhtSimApp', []);
 
-        dhtSimApp.directive('ngCx', function() {
-           return function(scope, element, attrs) {
-               scope.$watch(attrs.ngCx, function(value) {
-                  element.attr('cx', value);
-               });
-           };
-        });
+//        dhtSimApp.directive('ngCx', function() {
+//           return function(scope, element, attrs) {
+//               scope.$watch(attrs.ngCx, function(value) {
+//                   console.log("cx updated to " + value);
+//                   element.attr('cx', value);
+//               });
+//           };
+//        });
+//
+//        dhtSimApp.directive('ngCy', function() {
+//            return function(scope, element, attrs) {
+//                scope.$watch(attrs.ngCy, function(value) {
+//                    element.attr('cy', value);
+//                });
+//            };
+//        });
 
-        dhtSimApp.directive('ngCy', function() {
+        dhtSimApp.directive('ngCircle', function() {
             return function(scope, element, attrs) {
-                scope.$watch(attrs.ngCy, function(value) {
+                //console.log("The thing is: " + attrs);
+                scope.$watch(attrs.x, function(value) {
+                    element.attr('cx', value);
+                });
+                scope.$watch(attrs.y, function(value) {
                     element.attr('cy', value);
                 });
             };
@@ -30,15 +43,20 @@
 
         dhtSimApp.controller('MainController', function($scope, $http) {
             $scope.connected = false;
+            $scope.updatePending = false;
+            $scope.updateInProgress = false;
             $scope.nodes = [];
             $scope.circles = [
-                {x: 0, y: 0, r: 5},
-                {x: 0, y: 0, r: 5},
-                {x: 0, y: 0, r: 5},
-                {x: 0, y: 0, r: 5},
-                {x: 0, y: 0, r: 5},
-                {x: 0, y: 0, r: 5},
-                {x: 0, y: 0, r: 5}
+//                {x: 0, y: 0, r: 5},
+//                {x: 0, y: 0, r: 5},
+//                {x: 0, y: 0, r: 5},
+//                {x: 0, y: 0, r: 5},
+//                {x: 0, y: 0, r: 5},
+//                {x: 0, y: 0, r: 5},
+//                {x: 0, y: 0, r: 5}
+            ];
+            $scope.lines = [
+                {x1: 0, y1: 0, x2: 20, y2: 20}
             ];
 
             function layoutCircles() {
@@ -49,22 +67,15 @@
                 var radius = (width / 2) - 40;
                 var per = (2.0 * Math.PI) / $scope.circles.length;
                 var angle = 0.0;
-                // soh cah toa
-                // cos(0) = a/h
-                // a = h * cos(0)
                 $scope.circles.forEach(function(data, index) {
                     var x = cx + (radius * Math.cos(angle));
                     var y = cy + (radius * Math.sin(angle));
+                    data.x = parseInt(x);
+                    data.y = parseInt(y);
                     console.log(data);
-                    data.x = x;
-                    data.y = y;
                     angle += per;
-                    console.log("Laying out");
                 });
             }
-
-            layoutCircles();
-
             var stompClient;
 
             function connect() {
@@ -75,8 +86,23 @@
                     stompClient.subscribe("/topic/greetings", function(greeting) {
                         console.log("Message: " + greeting.body);
                     });
-                    stompClient.subscribe("/topic/simulation/**", function(data) {
+                    stompClient.subscribe("/topic/simulation/status", function(data) {
                         console.log("Simulation Event: " + data);
+                    });
+                    stompClient.subscribe("/topic/simulation/node/started", function(data) {
+                        var nodeId = JSON.parse(data.body);
+                        console.log("Node Started: " + nodeId);
+                        $http.get("/api/pastry/nodes/" + nodeId).success(function(data) {
+                            $scope.nodes.push(data.node);
+
+                            $scope.circles.push({
+                                id: nodeId,
+                                x: 0,
+                                y: 0,
+                                r: 5
+                            });
+                            layoutCircles();
+                        });
                     });
                 });
             }
@@ -86,16 +112,58 @@
             }
 
             $scope.startSimulation = function() {
-                //stompClient.send("/app/hello", {}, JSON.stringify({ 'name': "Foo" }));
                 $http.post("/api/simulation/start", {}).success(function(data) {
                     console.log("Simulation Started");
                     $http.get("/api/pastry/nodes").success(function (data) {
-                        $scope.nodes = data;
+                        $scope.nodes = data.nodes;
                     });
                 });
             };
 
+            function drawLinesFrom(node) {
+                function findCircle(nodeId) {
+                    var targetCircle = null;
+                    $scope.circles.forEach(function(circle, circleIndex) {
+                        if(circle.id == nodeId) {
+                            targetCircle = circle;
+                            return true;
+                        }
+                    });
+                    return targetCircle;
+                }
 
+                var targetCircle = findCircle(node.id);
+                if(targetCircle != null) {
+                    console.log("Neighbors: " + node.neighbors);
+                    node.neighbors.forEach(function (neighborNodeId, neighborNodeIdIndex) {
+                        var destCircle = findCircle(neighborNodeId);
+                        if(destCircle != null) {
+                            $scope.lines.push({
+                                x1: targetCircle.x,
+                                y1: targetCircle.y,
+                                x2: destCircle.x,
+                                y2: destCircle.y
+                            });
+                        }
+                        else {
+                            console.log("Can't find: " + neighborNodeId);
+                        }
+                    });
+                }
+            }
+
+            $scope.showNode = function(circle) {
+                $scope.lines = [];
+                $scope.nodes.forEach(function(node, nodeIndex) {
+                    if(node.id == circle.id) {
+                        $http.get("/api/pastry/nodes/" + node.id).success(function(data) {
+                            $scope.nodes[nodeIndex] = data.node;
+                            drawLinesFrom(data.node);
+                        });
+                        return true;
+                    }
+                });
+            };
 
             connect();
         });
@@ -104,15 +172,26 @@
 <body ng-controller="MainController">
     <div class="container">
         <div>Connected? <span ng-bind="connected"></span></div>
+        <div>Update Pending? <span ng-bind="updatePending"></span></div>
+        <div>Update in Progress? <span ng-bind="updateInProgress"></span></div>
         <button type="button" class="btn btn-default" ng-click="startSimulation()">Start</button>
         <div>
-            <ul>
-                <li ng-repeat="node in nodes">{{node.id}}</li>
-            </ul>
-        </div>
-        <div>
             <svg width="600" height="600">
-                <circle ng-repeat="circle in circles" ng-cx="{{circle.x}}" cy="{{circle.y}}" r="5" fill="red" stroke="black" stroke-width="1"/>
+                <circle ng-repeat="circle in circles"
+                        ng-attr-cx="{{circle.x}}"
+                        ng-attr-cy="{{circle.y}}"
+                        ng-click="showNode(circle)"
+                        r="5"
+                        fill="red"
+                        stroke="black"
+                        stroke-width="1"/>
+                <line ng-repeat="line in lines"
+                      ng-attr-x1="{{line.x1}}"
+                      ng-attr-y1="{{line.y1}}"
+                      ng-attr-x2="{{line.x2}}"
+                      ng-attr-y2="{{line.y2}}"
+                      stroke="black"
+                      stroke-width="1"/>
             </svg>
         </div>
     </div>
